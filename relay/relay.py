@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 
 from aiohttp import WSMsgType, web
@@ -158,6 +159,21 @@ async def client_conn(request):
     return ws
 
 
+async def probe_stream(request):
+    """Diagnostic: writes 3 chunks a few seconds apart so a client behind a
+    proxy can tell whether it sees them trickle in (streaming works) or all
+    at once at the end (the proxy is buffering the whole body)."""
+    resp = web.StreamResponse(headers={"Content-Type": "text/plain"})
+    resp.enable_chunked_encoding()
+    await resp.prepare(request)
+    for i in range(1, 4):
+        await resp.write(("chunk-%d %s\n" % (i, time.strftime("%H:%M:%S"))).encode())
+        if i < 3:
+            await asyncio.sleep(3)
+    await resp.write_eof()
+    return resp
+
+
 def make_app():
     app = web.Application()
     app.add_routes([
@@ -165,6 +181,7 @@ def make_app():
         web.get("/agent", agent_ctrl),
         web.get("/agent/data", agent_data),
         web.get("/client", client_conn),
+        web.get("/probe-stream", probe_stream),
     ])
     return app
 
