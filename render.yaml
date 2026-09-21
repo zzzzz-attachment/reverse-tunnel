@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: reverse-tunnel-relay
+    runtime: python
+    plan: free
+    buildCommand: pip install -r relay/requirements.txt
+    startCommand: python relay/relay.py
+    envVars:
+      - key: TUNNEL_TOKEN
+        generateValue: true   # Render generates a strong token; copy it from the dashboard
