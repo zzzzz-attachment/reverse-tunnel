@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-VDI-side agent (the exit node).
+Worker.
 
-Runs on the locked-down VDI. Holds a control WebSocket to the Render relay
-(punched out through the corporate HTTP proxy). For each session the relay
-announces, it opens a data WebSocket and dials the lab target, then bridges
-raw bytes between them. TLS from your host app to the target stays end-to-end.
+Holds a persistent control WebSocket to the broker (dialed outbound, optionally
+through an HTTP CONNECT proxy). For each stream the broker announces, it opens a
+data WebSocket and dials the requested target, then forwards raw bytes between
+them. TLS between the caller and the target stays end-to-end.
 
-Only depends on the standard library, so nothing needs installing on the VDI.
+Standard library only, so nothing extra needs installing.
 
 Example:
     python3 agent.py \
-        --relay wss://reverse-tunnel-relay.onrender.com \
+        --relay wss://status-api.onrender.com \
         --token YOUR_TOKEN \
         --proxy 127.0.0.1:3128 \
         --default-target example.com:443
@@ -30,16 +30,16 @@ from pump import bridge
 
 
 def log(*a):
-    print(time.strftime("%H:%M:%S"), "[agent]", *a, file=sys.stderr, flush=True)
+    print(time.strftime("%H:%M:%S"), "[worker]", *a, file=sys.stderr, flush=True)
 
 
 def dial_target(target, proxy, proxy_auth):
     host, port = target.rsplit(":", 1)
     port = int(port)
     if proxy:
-        # Target is external / only reachable via the corporate proxy.
+        # Reach the target through the HTTP proxy.
         return proxy_connect(proxy, host, port, proxy_auth)
-    # Target is directly reachable from the VDI's network.
+    # Target is directly reachable from this host's network.
     return socket.create_connection((host, port), 30)
 
 
@@ -49,20 +49,20 @@ def handle_session(args, sid, target):
     try:
         ws = WSConn.connect(data_url, proxy=args.proxy, proxy_auth=args.proxy_auth)
     except Exception as e:
-        log("session", sid, "data WS failed:", e)
+        log("stream", sid, "data WS failed:", e)
         return
 
     tproxy = args.proxy if args.target_via_proxy else None
     try:
         tsock = dial_target(target, tproxy, args.proxy_auth)
     except Exception as e:
-        log("session", sid, "target", target, "connect failed:", e)
+        log("stream", sid, "target", target, "connect failed:", e)
         ws.close()
         return
 
-    log("session", sid, "->", target, "open")
+    log("stream", sid, "->", target, "open")
     bridge(ws, tsock)
-    log("session", sid, "closed")
+    log("stream", sid, "closed")
 
 
 def run(args):
@@ -73,12 +73,12 @@ def run(args):
         try:
             log("connecting control channel via proxy", args.proxy or "(direct)")
             ctrl = WSConn.connect(ctrl_url, proxy=args.proxy, proxy_auth=args.proxy_auth)
-            log("control channel up; waiting for sessions")
+            log("control channel up; waiting for streams")
             backoff = 1
             while True:
                 kind, data = ctrl.recv()
                 if kind == "close":
-                    raise ConnectionError("relay closed control channel")
+                    raise ConnectionError("broker closed control channel")
                 if kind != "text":
                     continue
                 msg = json.loads(data)
@@ -86,7 +86,7 @@ def run(args):
                     sid = msg["sid"]
                     target = msg.get("target") or args.default_target
                     if not target:
-                        log("session", sid, "no target and no --default-target; skipping")
+                        log("stream", sid, "no target and no --default-target; skipping")
                         continue
                     threading.Thread(
                         target=handle_session, args=(args, sid, target), daemon=True
@@ -100,18 +100,18 @@ def run(args):
 
 
 def main():
-    p = argparse.ArgumentParser(description="VDI-side reverse tunnel agent")
+    p = argparse.ArgumentParser(description="WebSocket forwarding worker")
     p.add_argument("--relay", required=True, help="wss://<name>.onrender.com")
     p.add_argument("--token", default="", help="shared TUNNEL_TOKEN")
     p.add_argument("--room", default="default", help="room name to pair with local.py")
     p.add_argument("--proxy", default="127.0.0.1:3128",
-                   help="corporate HTTP CONNECT proxy host:port (used to reach the relay)")
+                   help="HTTP CONNECT proxy host:port used to reach the broker")
     p.add_argument("--proxy-auth", default=None, help="proxy Basic auth 'user:pass'")
     p.add_argument("--default-target", default=None,
                    help="fallback target host:port if local.py sends none")
     p.add_argument("--target-via-proxy", action="store_true",
-                   help="reach the target through the same corporate proxy "
-                        "(use when the target is external, not on the VDI LAN)")
+                   help="reach the target through the same HTTP proxy "
+                        "(use when the target is not on this host's LAN)")
     args = p.parse_args()
     run(args)
 

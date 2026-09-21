@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Render relay.
+Connection broker.
 
-A public rendezvous point. Both ends connect OUTBOUND to it (the VDI can only
-make outbound HTTP CONNECT calls, so it cannot be dialed directly). The relay
-pairs a host-side client connection with the VDI agent and shuttles raw bytes.
+A small public rendezvous service. Two WebSocket clients connect outbound to
+it; the broker pairs them and forwards raw bytes between them. One client (the
+worker) holds a persistent control channel; the other (the initiator) opens a
+short-lived connection per stream. Neither client needs to be reachable
+inbound.
 
 Endpoints:
     GET /            health check
-    GET /agent       agent control channel (one per room)
-    GET /agent/data  agent per-session data channel (?sid=...)
-    GET /client      host per-connection channel (?target=host:port)
+    GET /agent       worker control channel (one per room)
+    GET /agent/data  worker per-stream data channel (?sid=...)
+    GET /client      initiator per-stream channel (?target=host:port)
 
 Auth: set TUNNEL_TOKEN in the environment; every endpoint requires ?token=.
 """
@@ -24,7 +26,7 @@ import uuid
 from aiohttp import WSMsgType, web
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger("relay")
+log = logging.getLogger("svc")
 
 TOKEN = os.environ.get("TUNNEL_TOKEN", "")
 HEARTBEAT = 30
@@ -52,7 +54,7 @@ def ok_token(request):
 
 
 async def health(request):
-    return web.Response(text="reverse-tunnel relay ok\n")
+    return web.Response(text="ok\n")
 
 
 async def agent_ctrl(request):
@@ -63,7 +65,7 @@ async def agent_ctrl(request):
     ws = web.WebSocketResponse(heartbeat=HEARTBEAT)
     await ws.prepare(request)
     room.agent_ctrl = ws
-    log.info("agent control connected [room=%s]", room_name)
+    log.info("worker control connected [room=%s]", room_name)
     try:
         async for msg in ws:
             if msg.type == WSMsgType.ERROR:
@@ -71,7 +73,7 @@ async def agent_ctrl(request):
     finally:
         if room.agent_ctrl is ws:
             room.agent_ctrl = None
-        log.info("agent control disconnected [room=%s]", room_name)
+        log.info("worker control disconnected [room=%s]", room_name)
     return ws
 
 
@@ -109,7 +111,7 @@ async def agent_data(request):
     await ws.prepare(request)
     sess = room.pending.pop(sid, None)
     if not sess:
-        log.warning("agent data for unknown sid=%s", sid)
+        log.warning("data channel for unknown sid=%s", sid)
         await ws.close()
         return ws
     await _pipe(sess["client_ws"], ws)
@@ -127,7 +129,7 @@ async def client_conn(request):
     await ws.prepare(request)
 
     if room.agent_ctrl is None or room.agent_ctrl.closed:
-        log.warning("client connected but no agent in room=%s", room_name)
+        log.warning("initiator connected but no worker in room=%s", room_name)
         await ws.close()
         return ws
 
@@ -139,12 +141,12 @@ async def client_conn(request):
             json.dumps({"type": "connect", "sid": sid, "target": target})
         )
     except Exception as e:
-        log.warning("failed to notify agent: %s", e)
+        log.warning("failed to notify worker: %s", e)
         room.pending.pop(sid, None)
         await ws.close()
         return ws
 
-    log.info("session %s [room=%s] target=%s", sid, room_name, target)
+    log.info("stream %s [room=%s] target=%s", sid, room_name, target)
     try:
         await asyncio.wait_for(done.wait(), timeout=30 * 60)
     except asyncio.TimeoutError:
@@ -170,5 +172,5 @@ def make_app():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
     if not TOKEN:
-        log.warning("TUNNEL_TOKEN is empty - relay is UNAUTHENTICATED")
+        log.warning("TUNNEL_TOKEN is empty - service is UNAUTHENTICATED")
     web.run_app(make_app(), host="0.0.0.0", port=port)

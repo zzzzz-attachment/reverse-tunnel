@@ -31,8 +31,8 @@ Web Service manually:
 - Start: `python relay/relay.py`
 - Env: `TUNNEL_TOKEN` = a strong shared secret (the blueprint generates one)
 
-Note the service URL, e.g. `https://reverse-tunnel-relay.onrender.com`. Use it as
-`wss://reverse-tunnel-relay.onrender.com` for the clients. Health check: open the
+Note the service URL, e.g. `https://status-api.onrender.com`. Use it as
+`wss://status-api.onrender.com` for the clients. Health check: open the
 URL in a browser, you should see `reverse-tunnel relay ok`.
 
 > Free plan sleeps when idle and cold-starts on the first request; fine for a lab.
@@ -43,7 +43,7 @@ Copy `client/wsclient.py`, `client/pump.py`, `client/agent.py` to the VDI, then:
 
 ```bash
 python3 agent.py \
-  --relay wss://reverse-tunnel-relay.onrender.com \
+  --relay wss://status-api.onrender.com \
   --token YOUR_TOKEN \
   --proxy 127.0.0.1:3128 \
   --default-target example.com:443
@@ -59,7 +59,7 @@ python3 agent.py \
 
 ```bash
 python3 client/local.py \
-  --relay wss://reverse-tunnel-relay.onrender.com \
+  --relay wss://status-api.onrender.com \
   --token YOUR_TOKEN \
   --listen 127.0.0.1:8443 \
   --target example.com:443

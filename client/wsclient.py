@@ -1,8 +1,8 @@
 """
 Minimal WebSocket client (RFC 6455) with optional HTTP CONNECT proxy support.
 
-Pure standard library so it runs on a locked-down VDI where you cannot pip
-install anything. Blocking sockets + threads; used by agent.py and local.py.
+Pure standard library, so it runs anywhere Python is available with no extra
+packages to install. Blocking sockets + threads; used by agent.py and local.py.
 """
 
 import base64

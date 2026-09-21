@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Host-side local listener (the entry point).
+Local listener.
 
 Runs on your own machine. Listens on a local TCP port; for each incoming
-connection it opens a WebSocket to the Render relay, which pairs it with the
-VDI agent. Point your browser or tool at the local port to reach the target.
+connection it opens a WebSocket to the broker, which pairs it with the worker.
+Point your browser or tool at the local port to reach the target.
 
 Example:
     python3 local.py \
-        --relay wss://reverse-tunnel-relay.onrender.com \
+        --relay wss://status-api.onrender.com \
         --token YOUR_TOKEN \
         --listen 127.0.0.1:8443 \
         --target example.com:443
 
-Then, e.g.:  curl -k --resolve example.com:8443:127.0.0.1 https://example.com:8443/
+Then, e.g.:  curl https://example.com/ --connect-to example.com:443:127.0.0.1:8443
 or add a hosts entry / use SNI so your client speaks TLS straight to the target.
 """
 
@@ -38,7 +38,7 @@ def handle_conn(args, conn, addr):
     try:
         ws = WSConn.connect(client_url, proxy=args.proxy, proxy_auth=args.proxy_auth)
     except Exception as e:
-        log("relay connect failed:", e)
+        log("broker connect failed:", e)
         try:
             conn.close()
         except Exception:
@@ -64,15 +64,15 @@ def run(args):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Host-side reverse tunnel listener")
+    p = argparse.ArgumentParser(description="Local forwarding listener")
     p.add_argument("--relay", required=True, help="wss://<name>.onrender.com")
     p.add_argument("--token", default="", help="shared TUNNEL_TOKEN")
     p.add_argument("--room", default="default", help="room name to pair with agent.py")
     p.add_argument("--listen", default="127.0.0.1:8443", help="local bind host:port")
     p.add_argument("--target", required=True,
-                   help="target the VDI agent should dial, host:port")
+                   help="target host:port the worker should dial")
     p.add_argument("--proxy", default=None,
-                   help="optional HTTP CONNECT proxy for the host (usually none)")
+                   help="optional HTTP CONNECT proxy for this host (usually none)")
     p.add_argument("--proxy-auth", default=None, help="proxy Basic auth 'user:pass'")
     args = p.parse_args()
     try:
