@@ -39,7 +39,8 @@ URL in a browser, you should see `reverse-tunnel relay ok`.
 
 ## 2. Run the agent on the VDI
 
-Copy `client/wsclient.py`, `client/pump.py`, `client/agent.py` to the VDI, then:
+Copy `client/wsclient.py`, `client/pump.py`, `client/httppoll.py`, `client/agent.py`
+to the VDI, then:
 
 ```bash
 python3 agent.py \
@@ -54,6 +55,11 @@ python3 agent.py \
 - If the target is **external** and also only reachable via the corporate proxy,
   add `--target-via-proxy`. If the target is on the VDI's own LAN, leave it off
   (the agent dials it directly).
+- If the control channel keeps failing with `WebSocket handshake failed: HTTP/1.1
+  400 Bad Request`, the proxy is likely an inspecting gateway that strips the
+  WebSocket upgrade headers. Add `--transport poll` to fall back to plain HTTPS
+  long-polling instead (higher latency, but works through proxies that only pass
+  ordinary request/response traffic).
 
 ## 3. Run the listener on your host
 

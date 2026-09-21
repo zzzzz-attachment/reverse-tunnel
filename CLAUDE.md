@@ -49,6 +49,19 @@ your host                         Render                         VDI (locked dow
   add third-party dependencies to any file the VDI runs.
 - **`client/pump.py`** — `bridge(ws, sock)`: spins up two threads to pump bytes
   bidirectionally between a `WSConn` and a raw socket until either side closes.
+- **`client/httppoll.py`** — fallback transport (`PollClient`, `agent.py
+  --transport poll`) for a proxy that lets plain HTTPS through but strips
+  WebSocket upgrade headers (some inspecting corporate gateways do this even
+  over a working HTTP CONNECT tunnel). Uses `http.client`'s built-in
+  `set_tunnel()` instead of the hand-rolled WS framing. `relay.py` mirrors this
+  with a parallel set of endpoints (`/agent/poll`, `/stream/send`,
+  `/stream/recv`, `/stream/close`) built on short-lived long-poll
+  request/response cycles rather than a persistent/streamed connection —
+  necessary because some gateways also fully buffer streamed response bodies
+  instead of relaying them in real time (verified locally with the relay's
+  `/probe-stream` diagnostic endpoint). The initiator side (`local.py`) is
+  unaffected either way; a room's worker can be on either transport
+  transparently (`worker_present()` / `PollSession` in `relay.py`).
 
 TLS from the user's tool to the actual target is end-to-end and opaque to the
 tunnel — the tunnel only ever carries bytes. The client connecting through
